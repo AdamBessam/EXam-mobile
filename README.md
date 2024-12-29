@@ -31,9 +31,8 @@ This enterprise-level application implements a robust architecture using microse
 ## Architecture
 
 ### Global Architecture
-```
 ![WhatsApp Image 2024-12-29 à 18 03 18_2e98a7d2](https://github.com/user-attachments/assets/ad549dcd-e99f-4694-b184-9043b96e234b)
-
+```
 The system consists of three main components:
 - Web Client (React-based frontend)
 - Mobile Client (Native Android application)
@@ -41,9 +40,10 @@ The system consists of three main components:
 ```
 
 ### CI/CD Pipeline Architecture
+![WhatsApp Image 2024-12-11 à 10 51 22_4b07d7a4](https://github.com/user-attachments/assets/b8ea8086-605e-49fe-adef-c44e2c9c3972)
 ```
 
-![WhatsApp Image 2024-12-11 à 10 51 22_4b07d7a4](https://github.com/user-attachments/assets/b8ea8086-605e-49fe-adef-c44e2c9c3972)
+
 
 Pipeline workflow:
 1. Developer pushes code to GitHub
