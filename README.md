@@ -20,7 +20,6 @@ This enterprise-level application implements a robust architecture using microse
 - Android Studio 4.x or higher
 - Git
 - Docker and Docker Compose
-- Maven 3.6.x or higher
 
 ### Infrastructure Requirements
 - Jenkins server (port 8080)
@@ -33,7 +32,7 @@ This enterprise-level application implements a robust architecture using microse
 
 ### Global Architecture
 ```
-[Place architecture diagram here]
+![WhatsApp Image 2024-12-29 à 18 03 18_2e98a7d2](https://github.com/user-attachments/assets/ad549dcd-e99f-4694-b184-9043b96e234b)
 
 The system consists of three main components:
 - Web Client (React-based frontend)
@@ -43,7 +42,8 @@ The system consists of three main components:
 
 ### CI/CD Pipeline Architecture
 ```
-[Place CI/CD pipeline diagram here]
+
+![WhatsApp Image 2024-12-11 à 10 51 22_4b07d7a4](https://github.com/user-attachments/assets/b8ea8086-605e-49fe-adef-c44e2c9c3972)
 
 Pipeline workflow:
 1. Developer pushes code to GitHub
@@ -101,24 +101,193 @@ Pipeline workflow:
 
 ### Images
 ```yaml
-# Backend Services
-backend-service:
-  image: backend-service:latest
-  ports:
-    - "8080:8080"
+version: "3.8"
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    ports:
+      - "8080:8080"
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KC_HOSTNAME_PATH=/auth
+      - KC_HOSTNAME_STRICT=false
+      - KC_HOSTNAME_STRICT_HTTPS=false
+      - KC_HTTP_ENABLED=true
+      - KC_HTTP_RELATIVE_PATH=/auth
+      - KC_PROXY=edge
+      - KC_PROXY_ADDRESS_FORWARDING=true
+    command:
+      - start-dev
+      - --http-enabled=true
+      - --hostname=localhost
+    volumes:
+      - ./Keycloak-Docker/data:/opt/keycloak/data
 
-# Database
-database:
-  image: mysql:5.7
-  environment:
-    MYSQL_ROOT_PASSWORD: root
-    MYSQL_DATABASE: app_db
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-firstaid
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=first_aid_participant_bd
+      - MYSQL_USER=user
+      - MYSQL_PASSWORD=password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/data/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
-# Web Client
-web-client:
-  image: web-client:latest
-  ports:
-    - "80:80"
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin-firstaid
+    ports:
+      - "8089:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+
+  config-service:
+    build:
+      context: ./config-service
+      dockerfile: Dockerfile
+    container_name: config-service
+    ports:
+      - "9999:9999"
+    depends_on:
+      discovery-service:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-service:8761/eureka/
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  discovery-service:
+    build:
+      context: ./discovery-service
+      dockerfile: Dockerfile
+    container_name: discovery-service
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8761/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  gateway-service:
+    build:
+      context: ./gateway-service
+      dockerfile: Dockerfile
+    container_name: gateway-service
+    ports:
+      - "8888:8888"
+    depends_on:
+      keycloak:
+        condition: service_started
+      discovery-service:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-service:8761/eureka/
+
+  participant-service:
+    build:
+      context: ./participant-service
+      dockerfile: Dockerfile
+    container_name: participant-service
+    ports:
+      - "8082:8082"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      discovery-service:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-service:8761/eureka/
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/first_aid_participant_bd
+      - SPRING_DATASOURCE_USERNAME=user
+      - SPRING_DATASOURCE_PASSWORD=password
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT=org.hibernate.dialect.MySQL8Dialect
+
+  training-service:
+    build:
+      context: ./training-service
+      dockerfile: Dockerfile
+    container_name: training-service
+    ports:
+      - "8081:8081"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      discovery-service:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-service:8761/eureka/
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/first_aid_training_bd
+      - SPRING_DATASOURCE_USERNAME=user
+      - SPRING_DATASOURCE_PASSWORD=password
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT=org.hibernate.dialect.MySQL8Dialect
+
+  loki:
+    image: grafana/loki:main
+    command: [ '-config.file=/etc/loki/local-config.yaml' ]
+    ports:
+      - '3100:3100'
+
+  prometheus:
+    image: prom/prometheus:v2.46.0
+    container_name: prometheus
+    command:
+      - --enable-feature=exemplar-storage
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  tempo:
+    image: grafana/tempo:2.2.2
+    container_name: tempo
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./docker/tempo/tempo.yml:/etc/tempo.yaml:ro
+      - ./data/tempo:/tmp/tempo
+    ports:
+      - "3110:3100"
+      - "9411:9411"
+
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: grafana
+    volumes:
+      - ./docker/grafana:/etc/grafana/provisioning/datasources:ro
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    ports:
+      - "3000:3000"
+
+volumes:
+  mysql_data:
+
 ```
 
 ## Getting Started
@@ -199,13 +368,10 @@ docker stack deploy -c docker-compose.prod.yml app_stack
 - Docker security best practices
 - Network segmentation
 
-## Troubleshooting
-- Common issues and solutions
-- Log analysis procedures
-- Contact information for support
+
 
 ## Contributing
-Please read CONTRIBUTING.md for details on our code of conduct and the process for submitting pull requests.
+
 
 ## License
 This project is licensed under the MIT License - see the LICENSE.md file for details
